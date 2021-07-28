@@ -116,7 +116,12 @@ class LoginViewController: UIViewController {
             return
         }
         
-        FirebaseAuth.Auth.auth().signIn(withEmail: email, password: password, completion: { authResult, err in
+        FirebaseAuth.Auth.auth().signIn(withEmail: email, password: password, completion: { [weak self] authResult, err in
+            // avoid memory leak.
+            guard let strongSelf = self else {
+                return
+            }
+            
             guard let result = authResult, err == nil else {
                 print("Failed to login.")
                 return
@@ -124,6 +129,8 @@ class LoginViewController: UIViewController {
             
             let user = result.user
             print("Logged in by using \(String(describing: user.email))")
+            // can use self.navigationController... instead, still work but memory leak.
+            strongSelf.navigationController?.dismiss(animated: true, completion: nil)
         })
     }
 
