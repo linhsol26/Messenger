@@ -7,6 +7,7 @@
 
 import UIKit
 import FirebaseAuth
+import FBSDKLoginKit
 
 class LoginViewController: UIViewController {
 
@@ -65,6 +66,12 @@ class LoginViewController: UIViewController {
         return button
     }()
     
+    private let loginFbButton: FBLoginButton = {
+        let button = FBLoginButton()
+        button.permissions = ["email", "public_profile"]
+        return button
+    }()
+    
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -77,12 +84,14 @@ class LoginViewController: UIViewController {
         
         emailTextField.delegate = self
         passwordTextField.delegate = self
+        loginFbButton.delegate = self
         
         view.addSubview(scrollView)
         scrollView.addSubview(imageView)
         scrollView.addSubview(emailTextField)
         scrollView.addSubview(passwordTextField)
         scrollView.addSubview(logginButton)
+        scrollView.addSubview(loginFbButton)
     }
     
     override func viewDidLayoutSubviews() {
@@ -98,6 +107,8 @@ class LoginViewController: UIViewController {
         passwordTextField.frame = CGRect(x: 30, y: emailTextField.bottom + 10, width: scrollView.width - 60, height: 52) // standard size of height is 52
         
         logginButton.frame = CGRect(x: 120, y: passwordTextField.bottom + 15, width: scrollView.width - 240, height: 52) // standard size of height is 52
+        
+        loginFbButton.frame = CGRect(x: 110, y: logginButton.bottom + 15, width: scrollView.width - 220, height: 52) // standard size of height is 52
     }
     
     @objc private func didTapRegister() {
@@ -163,4 +174,66 @@ extension LoginViewController: UITextFieldDelegate {
         
         return true
     }
+}
+
+extension LoginViewController: LoginButtonDelegate {
+    func loginButton(_ loginButton: FBLoginButton, didCompleteWith result: LoginManagerLoginResult?, error: Error?) {
+        guard let token = result?.token?.tokenString else {
+            return
+        }
+        
+        let facebookRequest = FBSDKLoginKit.GraphRequest(graphPath: "me", parameters: ["fields": "email, name"], tokenString: token, version: nil, httpMethod: .get)
+        
+        facebookRequest.start(completion: {
+            _, result, err in
+            guard let result = result as? [String: Any], err == nil else {
+                print("Failed to make facebook graph request.")
+                return
+            }
+            
+            guard let name = result["name"] as? String,
+                  let email = result["email"] as? String else {
+                print("Failed to get Email and Name from Facebook.")
+                return
+            }
+            
+            let nameComponents = name.components(separatedBy: " ")
+            guard nameComponents.count == 2 else {
+                return
+            }
+            
+            let firstName = nameComponents[0]
+            let lastName = nameComponents[1]
+            
+            DatabaseManager.shared.emailExists(with: email, completion: {
+                exists in
+                if !exists {
+                    DatabaseManager.shared.createUser(with: ChatAppUser(firstName: firstName, lastName: lastName, emailAddress: email))
+                }
+            })
+            
+            let credential = FacebookAuthProvider.credential(withAccessToken: token)
+            
+            FirebaseAuth.Auth.auth().signIn(with: credential , completion: {
+                [weak self] authResult, err in
+                
+                guard let strongSelf = self else {
+                    return
+                }
+                
+                guard authResult != nil, err == nil else {
+                    print("Facebook credentials login failed. \(String(describing: err))")
+                    return
+                }
+                
+                print("Successul login with facebook.")
+                strongSelf.navigationController?.dismiss(animated: true, completion: nil)
+            })
+        })
+    }
+    
+    func loginButtonDidLogOut(_ loginButton: FBLoginButton) {
+    }
+    
+     
 }
